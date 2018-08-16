@@ -1,4 +1,5 @@
 #! /usr/bin/env python -O
+# -*- coding: utf-8 -*-
 
 '''This is a tool for turnkey deployment of VPN server configuration
 compatible with Android and iOS builtin VPN clients.
@@ -175,9 +176,10 @@ def passgen():
         
 if __name__ == '__main__':
 
-    addrs = [ match.groups()[0] for match in ifip_re.finditer(ifconfig)
-             if not (match.groups()[0].startswith('127.0.0.')
-                     or match.groups()[0].startswith('192.168'))]
+    if subprocess.check_output(('uname')) != 'Linux' or not os.path.exists('/etc/debian_version'):
+        print('Debian Linux and derivatives only, sorry!')
+        sys.exit(1)
+
     try:
         number = sys.argv[1]
     except IndexError as error:
