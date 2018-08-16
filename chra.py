@@ -31,6 +31,10 @@ import random
 
 ###
 
+__version__ = '0.1'
+
+###
+
 FNAME = '99-ipsec-l2tp-vpn'
 IFFNAME = os.path.join('/etc','network', 'interfaces.d', '.'.join((FNAME, 'cfg')))
 FWNAME = os.path.join('/etc','sysctl.d', '.'.join((FNAME, 'conf')))
@@ -176,7 +180,7 @@ def passgen():
         
 if __name__ == '__main__':
 
-    if subprocess.check_output(('uname')) != 'Linux' or not os.path.exists('/etc/debian_version'):
+    if subprocess.check_output(('uname')).strip() != 'Linux' or not os.path.exists('/etc/debian_version'):
         print('Debian Linux and derivatives only, sorry!')
         sys.exit(1)
 
