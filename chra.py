@@ -1,4 +1,4 @@
-#!
+#! /usr/bin/env python -O
 
 '''This is a tool for turnkey deployment of VPN server configuration
 compatible with Android and iOS builtin VPN clients.
@@ -8,6 +8,14 @@ Usage:
 
 This script is based word-for-word on the Debian Wiki
 Android VPN Server HOWTO: https://wiki.debian.org/HowTo/AndroidVPNServer
+
+Copyright (C) 2018 Alexander Gütsche
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program. If not, see http://www.gnu.org/licenses/.
 '''
 
 from __future__ import print_function
@@ -17,7 +25,6 @@ import re
 import sys
 import subprocess
 import fileinput
-#import shutil
 import string
 import random
 
@@ -105,6 +112,9 @@ iptables -A INPUT -p udp -m policy --dir in --pol ipsec -m udp --dport 1701 -j A
 ###
 
 def gateway():
+
+    '''Return the interface that default gateway traffic is routed thru.'''
+
     for line in fileinput.input('/proc/net/route'):
         if (not fileinput.isfirstline()) and (not int(line.split()[1], 16)):
             fileinput.close()
@@ -112,32 +122,42 @@ def gateway():
 
 
 def interfaces():
-    
+
+    '''Returns list of defined network interfaces.'''
+
     return (RE.match(line).groups()[0]
             for line in subprocess.check_output('/sbin/ifconfig').split('\n')
             if RE.match(line))
 
 def check_interfaces(magic, quiet=False):
 
+    '''Check if <default gateway interface>:<magic number> interface alias exists.'''
+
     new = '%s:%d' % (gateway(), int(magic))
     for iface in interfaces():
         if iface == new:
-            if not quiet:
+            if not quiet or __debug__:
                 print ('Interface %s already defined!' % new)
             return iface
 
 def replace_config(filepath, body):
-    '''Write a config file. If there's no previous backups, save old file as a backup'''
+
+    '''Write a config file. If there's no previous backups, save old file as a backup.'''
+
     if os.path.exists(filepath):
         backup = '.'.join((filepath,'orig'))
-        if not os.path.exists(backup):
+        if not os.path.exists(backup) or __debug__:
             os.rename(filepath, backup)
         else:
             print('File %s already has a backup, skipping...')
-        with file(filepath, 'w') as handle:
-            handle.write(body)
+        if not __debug__:
+            with file(filepath, 'w') as handle:
+                handle.write(body)
 
 def passgen():
+
+    '''Simple random password generator.'''
+
     vowels = 'aeiou'
     letters = string.ascii_letters
     numbers = string.digits
@@ -187,52 +207,56 @@ if __name__ == '__main__':
     interface = '.'.join(VPN + (str(number), '1'))
 
     # VPN Services interface definition
-    
-    with file(IFFNAME, 'w') as handle:                      
-        handle.write('# Android/iPhone internal VPN interface\n\n')
-        handle.write('auto %s\n' % ifname)
-        handle.write('interface %s inet static\n' % ifname)
-        handle.write('\taddress %s\n' % interface)
-        handle.write('\tnetmask 255.255.255.0\n')
-        handle.close()
-        #subprocess.call(('service', 'networking', 'restart'))
-        subprocess.call (('ifup', '-i', IFFNAME, iface))
-        if not check_interfaces(number, True):
-            print('** Interface %s not up. Please ask a grownup for help.')
+
+    if not __debug__:
+
+        with file(IFFNAME, 'w') as handle:
+            handle.write('# Android/iPhone internal VPN interface\n\n')
+            handle.write('auto %s\n' % ifname)
+            handle.write('interface %s inet static\n' % ifname)
+            handle.write('\taddress %s\n' % interface)
+            handle.write('\tnetmask 255.255.255.0\n')
+            handle.close()
+            #subprocess.call(('service', 'networking', 'restart'))
+            subprocess.call (('ifup', '-i', IFFNAME, iface))
+            if not check_interfaces(number, True):
+                print('** Interface %s not up. Please ask a grownup for help.')
 
     # PPPd
 
     print('Configuring pppd... ',)
-    replace_config('/etc/ppp/peers/xl2tpd', PEER % interface)
+    if not __debug__: replace_config('/etc/ppp/peers/xl2tpd', PEER % interface)
     print ('done.')
     
     # DNSMasq
             
     print('Configuring DNSMasq... ', )
-
-    with file('/etc/dnsmasq.d/interfaces.conf', 'w') as handle:
-        handle.write('listen-address=127.0.0.1\nlisten-address=%s\n' % interface)
-        subprocess.call(('service', 'dnsmasq', 'force-reload'))        
+    if not __debug__:
+        with file('/etc/dnsmasq.d/interfaces.conf', 'w') as handle:
+            handle.write('listen-address=127.0.0.1\nlisten-address=%s\n' % interface)
+            subprocess.call(('service', 'dnsmasq', 'force-reload'))
     print ('done.')
 
     # IP Forwarding
     
     print('Configuing IP forwarding (IPv4):')
     sysctl = ('net.ipv4.tcp_syncookies=1','net.ipv4.ip_forward=1')
-    with file(FWNAME) as handle:
-        handle.write('# Android/iPhone VPN forwarding\n\n')
-        handle.write('%s\n' % '\n'.join(sysctl))
-        for item in sysctl:
-            subprocess.call(('sysctl', item))        
 
-    replace_config('/etc/xl2tpd/xl2tpd.conf', L2TP % dict(magic=number))
+    if not __debug__:
+        with file(FWNAME) as handle:
+            handle.write('# Android/iPhone VPN forwarding\n\n')
+            handle.write('%s\n' % '\n'.join(sysctl))
+            for item in sysctl:
+                subprocess.call(('sysctl', item))
 
-    with file(' /etc/ppp/chap-secrets', 'a') as handle:
-        handle.write('\n#xl2tp accounts automatically added\n')
-        for user in sys.argv[2:]:
-            passwd = passgen()
-            handle.write('%s xl2tpd %s *' % (user, passwd))
-            print('VPN user: %s\tVPN password: %s\n' % (user, passwd))
+        replace_config('/etc/xl2tpd/xl2tpd.conf', L2TP % dict(magic=number))
+
+        with file(' /etc/ppp/chap-secrets', 'a') as handle:
+            handle.write('\n#xl2tp accounts automatically added\n')
+            for user in sys.argv[2:]:
+                passwd = passgen()
+                handle.write('%s xl2tpd %s *' % (user, passwd))
+                print('VPN user: %s\tVPN password: %s\n' % (user, passwd))
 
     ### IPSec configuration
 
@@ -257,23 +281,26 @@ if __name__ == '__main__':
     local_ip = addrs[0]
     
     print('Creating IPSec NAT policy for %s... ' % local_ip,)
-    replace_config('/etc/ipsec-tools.d/xl2tp.conf', POLICY % dict(ip=local_ip))
+    if not __debug__: replace_config('/etc/ipsec-tools.d/xl2tp.conf', POLICY % dict(ip=local_ip))
     print('done!')
     
     ### NAT Firewall
 
     print ('Flushing NAT and configuring IP masquerading...',)
-    subprocess.call(('iptables', '-t', 'nat', '--flush'))
 
-    for line in IPTABLES.split('\n'):
-        subprocess.call([item % dict(ifname=ifname, magic=number)
-                         for item in line.split()])
+    if not __debug__:
+        subprocess.call(('iptables', '-t', 'nat', '--flush'))
 
-    subprocess.call(['service', 'netfilter-persistent', 'save'])
+        for line in IPTABLES.split('\n'):
+            subprocess.call([item % dict(ifname=ifname, magic=number)
+                             for item in line.split()])
+
+        subprocess.call(['service', 'netfilter-persistent', 'save'])
     
     print('done.')
 
-    for service in ('xl2tpd', 'setkey', 'racoon', 'dnsmasq'):
-        subprocess.call(('service', service, 'restart'))
+    if not __debug__:
+        for service in ('xl2tpd', 'setkey', 'racoon', 'dnsmasq'):
+            subprocess.call(('service', service, 'restart'))
 
     print('\nDone!\n\nYou can now try to connect to your new VPN server at %s!\n' % local_ip)
